@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, formatTime, type Me } from "./api";
+import { useCallback, useEffect, useState, type FormEvent, type MutableRefObject } from "react";
+import { api, formatTime, type Me, type Place } from "./api";
+import type { Center } from "./MapView";
 
 type Person = { id: number; name: string };
 type Shares = { viewers: Person[]; shared_with_me: Person[] };
@@ -18,8 +19,15 @@ function errText(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
-export default function Settings({ me, onClose }: { me: Me; onClose: () => void }) {
-  const [tab, setTab] = useState<"account" | "share" | "admin">("share");
+type Props = {
+  me: Me;
+  centerRef: MutableRefObject<Center | null>;
+  onPlacesChanged: () => void;
+  onClose: () => void;
+};
+
+export default function Settings({ me, centerRef, onPlacesChanged, onClose }: Props) {
+  const [tab, setTab] = useState<"account" | "share" | "places" | "admin">("share");
   return (
     <div className="modal" onClick={onClose}>
       <div className="card dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="設定">
@@ -28,8 +36,11 @@ export default function Settings({ me, onClose }: { me: Me; onClose: () => void 
             <button className={tab === "share" ? "active" : ""} onClick={() => setTab("share")}>
               共有
             </button>
+            <button className={tab === "places" ? "active" : ""} onClick={() => setTab("places")}>
+              場所
+            </button>
             <button className={tab === "account" ? "active" : ""} onClick={() => setTab("account")}>
-              パスワード
+              パスワード・暗号化
             </button>
             {me.role === "admin" && (
               <button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}>
@@ -43,7 +54,13 @@ export default function Settings({ me, onClose }: { me: Me; onClose: () => void 
           </button>
         </div>
         {tab === "share" && <ShareTab />}
-        {tab === "account" && <PasswordTab />}
+        {tab === "places" && <PlacesTab centerRef={centerRef} onChanged={onPlacesChanged} />}
+        {tab === "account" && (
+          <>
+            <PasswordTab />
+            <EncryptionTab initial={me.has_enc_key} />
+          </>
+        )}
         {tab === "admin" && me.role === "admin" && <AdminTab me={me} />}
       </div>
     </div>
@@ -148,6 +165,149 @@ function PasswordTab() {
       <button className="primary">変更</button>
       {msg && <p className="small">{msg}</p>}
     </form>
+  );
+}
+
+function PlacesTab({ centerRef, onChanged }: { centerRef: MutableRefObject<Center | null>; onChanged: () => void }) {
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [name, setName] = useState("");
+  const [radius, setRadius] = useState(150);
+  const [msg, setMsg] = useState("");
+  const center = centerRef.current;
+
+  const load = useCallback(
+    () =>
+      api<Place[]>("/api/places")
+        .then(setPlaces)
+        .catch((e) => setMsg(errText(e))),
+    [],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function run(fn: () => Promise<unknown>) {
+    try {
+      await fn();
+      setMsg("");
+    } catch (e) {
+      setMsg(errText(e));
+    }
+    load();
+    onChanged();
+  }
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    if (!center) return;
+    await run(() => api("/api/places", { method: "POST", body: { name: name.trim(), lat: center.lat, lon: center.lon, radius_m: radius } }));
+    setName("");
+  }
+
+  return (
+    <div className="stack">
+      <p className="small">
+        登録した場所に、自分や共有してくれている人の端末が出入りすると記録します(サーバーで判定するので、スマホ側の設定は不要)。
+        通知を ON にすると、サーバーに Webhook が設定されていればそこにも送ります。
+      </p>
+      {places.length === 0 && <p className="muted small">まだありません</p>}
+      <ul className="plain">
+        {places.map((p) => (
+          <li key={p.id} className="row wrap">
+            <span className="grow">
+              {p.name} <span className="muted small">半径 {Math.round(p.radius_m)} m</span>
+            </span>
+            <label className="inline small">
+              <input
+                type="checkbox"
+                checked={p.notify}
+                onChange={(e) => run(() => api(`/api/places/${p.id}`, { method: "PATCH", body: { notify: e.target.checked } }))}
+              />
+              通知
+            </label>
+            <button
+              onClick={() => {
+                const r = prompt(`${p.name} の半径(m、20〜50000)`, String(Math.round(p.radius_m)));
+                if (r && Number(r) > 0) run(() => api(`/api/places/${p.id}`, { method: "PATCH", body: { radius_m: Number(r) } }));
+              }}
+            >
+              半径
+            </button>
+            <button
+              className="danger"
+              onClick={() => confirm(`${p.name} を削除します。よろしいですか?`) && run(() => api(`/api/places/${p.id}`, { method: "DELETE" }))}
+            >
+              削除
+            </button>
+          </li>
+        ))}
+      </ul>
+      <h3>場所を追加</h3>
+      <p className="small">
+        地図を動かして、登録したい所を画面の中央に合わせてから追加してください。
+        {center && (
+          <span className="muted">
+            {" "}
+            (今の中央: {center.lat.toFixed(5)}, {center.lon.toFixed(5)})
+          </span>
+        )}
+      </p>
+      <form className="row wrap" onSubmit={add}>
+        <input placeholder="名前(例: 自宅)" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
+        <label className="inline small">
+          半径
+          <input type="number" min={20} max={50000} step={10} value={radius} onChange={(e) => setRadius(Number(e.target.value))} style={{ width: 90 }} />
+          m
+        </label>
+        <button className="primary" disabled={!center}>
+          地図の中央に追加
+        </button>
+      </form>
+      {msg && <p className="error">{msg}</p>}
+    </div>
+  );
+}
+
+function EncryptionTab({ initial }: { initial: boolean }) {
+  const [hasKey, setHasKey] = useState(initial);
+  const [key, setKey] = useState("");
+  const [msg, setMsg] = useState("");
+
+  async function save(value: string | null) {
+    try {
+      await api("/api/auth/encryption-key", { method: "PUT", body: { key: value } });
+      setHasKey(value !== null);
+      setKey("");
+      setMsg(value === null ? "解除しました" : "登録しました");
+    } catch (e) {
+      setMsg(errText(e));
+    }
+  }
+
+  return (
+    <div className="stack">
+      <h3>OwnTracks の暗号化</h3>
+      <p className="small">
+        OwnTracks の「Encryption Key」を設定すると、位置は端末で暗号化されて送られ、MQTT ブローカーからは読めなくなります。
+        同じ文字列をここにも登録してください(このサーバーで復号して保存します)。状態: <strong>{hasKey ? "登録済み" : "未登録"}</strong>
+      </p>
+      <form
+        className="row wrap"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save(key);
+        }}
+      >
+        <input type="password" placeholder="暗号化キー" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" required />
+        <button className="primary">登録</button>
+        {hasKey && (
+          <button type="button" className="danger" onClick={() => confirm("暗号化キーを解除します。端末側も解除しないと位置が保存されなくなります。") && save(null)}>
+            解除
+          </button>
+        )}
+      </form>
+      {msg && <p className="small">{msg}</p>}
+    </div>
   );
 }
 

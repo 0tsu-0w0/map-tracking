@@ -198,7 +198,10 @@ def test_healthz(client):
 
 
 def test_export_filename_with_japanese_device(client):
-    client.post("/api/pub", json=loc(NOW - 5), headers={**basic("taro", "taro-password-2"), "X-Limit-D": "スマホ"})
+    from app import mqtt
+
+    payload = json.dumps(loc(NOW - 5)).encode()
+    client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/taro/スマホ", payload)
     devs = {d["name"]: d for d in client.get("/api/devices", headers=state["taro"]).json()}
     r = client.get(f"/api/devices/{devs['スマホ']['id']}/export?format=csv", headers=state["taro"])
     assert r.status_code == 200

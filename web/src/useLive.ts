@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { LiveEvent } from "./api";
+import type { LiveEvent, PlaceLiveEvent } from "./api";
 
 /** /api/ws に接続し、新着位置を受け取る。切れたら待ち時間を伸ばしながら再接続する。 */
-export function useLive(onEvent: (ev: LiveEvent) => void) {
+export function useLive(onEvent: (ev: LiveEvent | PlaceLiveEvent) => void) {
   const [connected, setConnected] = useState(false);
   const handler = useRef(onEvent);
   handler.current = onEvent;
@@ -23,7 +23,7 @@ export function useLive(onEvent: (ev: LiveEvent) => void) {
       ws.onmessage = (e) => {
         try {
           const ev = JSON.parse(e.data);
-          if (ev?.type === "location") handler.current(ev as LiveEvent);
+          if (ev?.type === "location" || ev?.type === "place") handler.current(ev as LiveEvent | PlaceLiveEvent);
         } catch {
           /* 想定外のメッセージは無視 */
         }

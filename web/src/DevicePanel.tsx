@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayRange, deviceColor, deviceLabel, formatTime, timeAgo, todayString, type Device, type Track } from "./api";
+import { api, dayRange, deviceColor, deviceLabel, formatTime, timeAgo, todayString, type Device, type PlaceEvent, type Track } from "./api";
 
 type Stat = { day: string; points: number; meters: number };
 
@@ -11,6 +11,7 @@ type Props = {
   onDate: (d: string) => void;
   track: Track | null;
   loading: boolean;
+  eventsKey: number;
   onChanged: () => void;
 };
 
@@ -18,8 +19,9 @@ function km(m: number) {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
 }
 
-export default function DevicePanel({ devices, selected, onSelect, date, onDate, track, loading, onChanged }: Props) {
+export default function DevicePanel({ devices, selected, onSelect, date, onDate, track, loading, eventsKey, onChanged }: Props) {
   const [stats, setStats] = useState<Stat[]>([]);
+  const [events, setEvents] = useState<PlaceEvent[]>([]);
   const [, tick] = useState(0);
 
   // 「◯分前」の表示を 1 分ごとに更新する
@@ -33,6 +35,13 @@ export default function DevicePanel({ devices, selected, onSelect, date, onDate,
     if (!selected) return;
     api<Stat[]>(`/api/devices/${selected.id}/stats?days=7`).then(setStats).catch(() => setStats([]));
   }, [selected?.id, track]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setEvents([]);
+    if (!selected) return;
+    const q = new URLSearchParams(dayRange(date));
+    api<PlaceEvent[]>(`/api/devices/${selected.id}/events?${q}`).then(setEvents).catch(() => setEvents([]));
+  }, [selected?.id, date, eventsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function remove(range: { from?: string; to?: string } | null, message: string) {
     if (!selected || !confirm(message)) return;
@@ -108,6 +117,21 @@ export default function DevicePanel({ devices, selected, onSelect, date, onDate,
                 : ""}
           </p>
           {selected.last && <p className="muted small">最終受信 {formatTime(selected.last.recorded_at)}</p>}
+
+          {events.length > 0 && (
+            <details open>
+              <summary>出入り({events.length})</summary>
+              <ul className="events">
+                {events.map((e, i) => (
+                  <li key={i}>
+                    <span className="muted small">{formatTime(e.occurred_at).split(" ").pop()}</span>{" "}
+                    <span className={e.event === "enter" ? "in" : "out"}>{e.event === "enter" ? "着" : "発"}</span> {e.place_name}
+                    {e.source === "device" && <span className="tag">端末</span>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
 
           {stats.length > 0 && (
             <details>

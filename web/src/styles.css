@@ -112,3 +112,10 @@ table.users .actions { display: flex; gap: 4px; }
   .panel { width: 100%; max-height: 45%; border-right: none; border-top: 1px solid var(--line); padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   header .muted { display: none; }
 }
+
+.events { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; display: flex; flex-direction: column; gap: 2px; }
+.events .in, .events .out { display: inline-block; font-size: 0.75rem; padding: 0 6px; border-radius: 8px; color: #fff; }
+.events .in { background: #1a7f37; }
+.events .out { background: #8250df; }
+.toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(360px, calc(100% - 32px)); }
+.toast { background: var(--card); border: 1px solid var(--line); border-left: 4px solid #8250df; border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; box-shadow: 0 2px 8px rgb(0 0 0 / 0.2); }

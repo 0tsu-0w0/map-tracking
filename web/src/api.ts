@@ -1,4 +1,4 @@
-export type Me = { id: number; name: string; role: "admin" | "member" };
+export type Me = { id: number; name: string; role: "admin" | "member"; has_enc_key: boolean };
 
 export type LastLocation = {
   lat: number;
@@ -33,6 +33,23 @@ export type LiveEvent = {
   vel: number | null;
   recorded_at: string;
 };
+
+export type PlaceLiveEvent = {
+  type: "place";
+  event: "enter" | "leave";
+  source: "server" | "device";
+  place_name: string;
+  place_id: number | null;
+  device_id: number;
+  user_id: number;
+  user_name: string;
+  device_name: string;
+  occurred_at: string;
+};
+
+export type Place = { id: number; name: string; lat: number; lon: number; radius_m: number; notify: boolean };
+
+export type PlaceEvent = { place_name: string; event: "enter" | "leave"; source: "server" | "device"; occurred_at: string };
 
 export type Track = GeoJSON.FeatureCollection & { count: number; truncated: boolean };
 

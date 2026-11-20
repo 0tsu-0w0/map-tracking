@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, dayRange, todayString, type AppConfig, type Device, type LiveEvent, type Me, type Track } from "./api";
+import { api, dayRange, todayString, type AppConfig, type Device, type LiveEvent, type Me, type Place, type Track } from "./api";
 import DevicePanel from "./DevicePanel";
-import MapView, { type Focus } from "./MapView";
+import MapView, { type Center, type Focus } from "./MapView";
 import Settings from "./Settings";
 import { useLive } from "./useLive";
 
@@ -19,6 +19,8 @@ function appendPoint(track: Track, ev: LiveEvent): Track {
   return { ...track, features: [...line, ...points, point], count: track.count + 1 };
 }
 
+type Toast = { id: number; text: string };
+
 export default function Main({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -31,7 +33,15 @@ export default function Main({ me, onLogout }: { me: Me; onLogout: () => void })
   const [showSettings, setShowSettings] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [error, setError] = useState("");
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [eventsKey, setEventsKey] = useState(0);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const centerRef = useRef<Center | null>(null);
   const reqId = useRef(0);
+
+  const loadPlaces = useCallback(() => {
+    api<Place[]>("/api/places").then(setPlaces).catch(() => undefined);
+  }, []);
 
   const loadDevices = useCallback(async () => {
     try {
@@ -48,7 +58,8 @@ export default function Main({ me, onLogout }: { me: Me; onLogout: () => void })
   useEffect(() => {
     api<AppConfig>("/api/config").then(setConfig).catch(() => setConfig({ map_style_url: null, retention_days: 0, tz: "" }));
     loadDevices();
-  }, [loadDevices]);
+    loadPlaces();
+  }, [loadDevices, loadPlaces]);
 
   const loadTrack = useCallback(async () => {
     if (selectedId == null) {
@@ -73,7 +84,18 @@ export default function Main({ me, onLogout }: { me: Me; onLogout: () => void })
     loadTrack();
   }, [loadTrack]);
 
+  function toast(text: string) {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t.slice(-3), { id, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 8000);
+  }
+
   const live = useLive((ev) => {
+    if (ev.type === "place") {
+      toast(`${ev.user_name}/${ev.device_name} が ${ev.place_name} ${ev.event === "enter" ? "に着きました" : "を出ました"}`);
+      if (ev.device_id === selectedId) setEventsKey((k) => k + 1);
+      return;
+    }
     setDevices((list) => {
       if (!list.some((d) => d.id === ev.device_id)) {
         loadDevices(); // 新しい端末は一覧を取り直す
@@ -134,6 +156,7 @@ export default function Main({ me, onLogout }: { me: Me; onLogout: () => void })
             onDate={setDate}
             track={track}
             loading={loading}
+            eventsKey={eventsKey}
             onChanged={() => {
               loadDevices();
               loadTrack();
@@ -148,6 +171,8 @@ export default function Main({ me, onLogout }: { me: Me; onLogout: () => void })
             track={track}
             trackFitKey={trackFitKey}
             focus={focus}
+            places={places}
+            centerRef={centerRef}
             onSelect={select}
           />
         )}
@@ -155,12 +180,21 @@ export default function Main({ me, onLogout }: { me: Me; onLogout: () => void })
       {showSettings && (
         <Settings
           me={me}
+          centerRef={centerRef}
+          onPlacesChanged={loadPlaces}
           onClose={() => {
             setShowSettings(false);
             loadDevices();
           }}
         />
       )}
+      <div className="toasts" aria-live="polite">
+        {toasts.map((t) => (
+          <div key={t.id} className="toast">
+            {t.text}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

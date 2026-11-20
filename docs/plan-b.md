@@ -46,11 +46,21 @@ flowchart LR
 | F-11 書き出し | GPX / GeoJSON / CSV(その日 / 全期間) |
 | F-12 自動削除 | `RETENTION_DAYS` を過ぎた履歴を 6 時間ごとに削除 |
 | F-13 共有 | 「設定 → 共有」で自分の位置を見せる相手を選ぶ。管理者は全員を見られる |
+| F-14 ジオフェンス | 「設定 → 場所」で地図の中央に円(半径 20 m〜50 km)を登録すると、自分と共有してくれている人の端末の出入りをサーバーで判定して記録・画面に通知・Webhook 通知。OwnTracks 側の Regions(`owntracks/<user>/<device>/event`)の出入りも記録する |
 | F-15 統計 | 直近 7 日の日別移動距離(精度 100 m より悪い点は除く) |
 | 監視 | `ALERT_STALE_HOURS` 時間以上位置が届かない端末を Webhook(Slack / Discord 形式)で通知 |
 | バックアップ | `backup` コンテナが毎日 `./backups/tracking-YYYY-MM-DD.dump` を作り、`BACKUP_KEEP` 世代残す |
 
-未実装: F-14 ジオフェンス、OwnTracks のペイロード暗号化(暗号化メッセージは受信しても無視してログに出す)。
+| 暗号化 | OwnTracks の「Encryption Key」を使うと、位置は端末で暗号化され、ブローカーからは読めない。同じ鍵を「設定 → パスワード・暗号化」に登録すると API が復号して保存する |
+
+ジオフェンスの判定の決まり:
+
+- 判定するのは、その端末で一番新しい位置が届いたときだけ(後から届いた古い位置では判定しない)。精度が 500 m より悪い位置も使わない。
+- 円の中に入ったら「着」、半径 + 30 m(精度が悪いときは最大 + 100 m)より外に出たら「発」。境界付近で出入りを繰り返さないための余裕。
+- 場所を登録した直後の最初の位置では、今の状態を覚えるだけで記録しない。
+- 出入りの記録は、場所の持ち主・端末の持ち主・管理者だけが見られる(OwnTracks 側の Regions は、端末を見られる人全員)。
+
+セキュリティ上の確認結果と対策は [security.md](security.md) を参照。
 
 ## 利用者の考え方
 
@@ -169,6 +179,10 @@ GitHub Actions(`.github/workflows/ci.yml`)が push のたびに、PostGIS を使
 | GET | `/api/devices/{id}/locations?from=&to=` | 履歴(GeoJSON。既定は直近 24 時間、最大 93 日) |
 | GET | `/api/devices/{id}/export?format=gpx\|geojson\|csv&from=&to=` | 書き出し(期間省略で全期間) |
 | GET | `/api/devices/{id}/stats?days=7` | 日別の点数と移動距離 |
+| GET | `/api/devices/{id}/events?from=&to=` | 出入りの記録 |
+| GET / POST | `/api/places` | 自分の場所の一覧・登録 |
+| PATCH / DELETE | `/api/places/{id}` | 場所の変更・削除 |
+| PUT | `/api/auth/encryption-key` | OwnTracks の暗号化キーの登録・解除(`{"key": null}` で解除) |
 | DELETE | `/api/devices/{id}/locations?from=&to=` | 履歴の削除(期間省略で全部) |
 | DELETE | `/api/devices/{id}` | 端末ごと削除 |
 | GET / POST | `/api/shares` | 共有設定の一覧・追加 |
