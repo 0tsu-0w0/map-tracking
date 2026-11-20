@@ -1,0 +1,72 @@
+# 案A: OwnTracks + Mosquitto(認証・ACL) + Recorder + Caddy
+# 外部に開くのは 80/443 だけ。Mosquitto と Recorder は内部ネットワークのみ。
+
+services:
+  caddy:
+    image: caddy:2.11.9
+    container_name: ot-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"        # 証明書取得(HTTP-01)と HTTPS へのリダイレクト
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      MQTT_DOMAIN: ${MQTT_DOMAIN:?MQTT_DOMAIN を .env に設定してください}
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN を .env に設定してください}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      WEB_USER: ${WEB_USER:?WEB_USER を .env に設定してください}
+      WEB_PASS_HASH: ${WEB_PASS_HASH:?WEB_PASS_HASH を .env に設定してください}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - mosquitto
+      - recorder
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.23
+    container_name: ot-mosquitto
+    restart: unless-stopped
+    # ポートは公開しない(Caddy が内部ネットワーク経由で 9001 に中継)
+    expose:
+      - "1883"
+      - "9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  recorder:
+    image: owntracks/recorder:1.0.7
+    container_name: ot-recorder
+    restart: unless-stopped
+    environment:
+      OTR_HOST: mosquitto
+      OTR_PORT: 1883
+      OTR_USER: ${RECORDER_MQTT_USER:-recorder}
+      OTR_PASS: ${RECORDER_MQTT_PASS:?RECORDER_MQTT_PASS を .env に設定してください}
+      OTR_HTTPHOST: 0.0.0.0
+      OTR_HTTPPORT: 8083
+      TZ: ${TZ:-Asia/Tokyo}
+    expose:
+      - "8083"
+    volumes:
+      - recorder_store:/store
+      - recorder_config:/config
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:
+  mosquitto_data:
+  mosquitto_log:
+  recorder_store:
+  recorder_config:

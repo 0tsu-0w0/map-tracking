@@ -1,0 +1,18 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# MQTT over WebSocket(OwnTracks アプリの接続先)
+# OwnTracks は WebSocket のパスを指定できないため、ルートで受けて Mosquitto へ中継する。
+# 認証は Mosquitto 側(password_file + ACL)で行う。
+{$MQTT_DOMAIN} {
+	reverse_proxy mosquitto:9001
+}
+
+# Recorder の地図画面(ブラウザで見る)
+{$APP_DOMAIN} {
+	basic_auth {
+		{$WEB_USER} {$WEB_PASS_HASH}
+	}
+	reverse_proxy recorder:8083
+}

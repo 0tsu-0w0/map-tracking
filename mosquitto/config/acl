@@ -1,0 +1,12 @@
+# --- Recorder: 全員の位置を読むだけ ---
+user recorder
+topic read owntracks/#
+
+# --- 端末(全ユーザー共通) ---
+# 自分のトピック owntracks/<ユーザー名>/<端末名> にだけ書き込める。
+# %u は MQTT のユーザー名に置き換わる。OwnTracks の「Username」と揃えること。
+pattern readwrite owntracks/%u/#
+
+# 家族・友人の位置を OwnTracks アプリ上にも表示したい場合は、
+# 下の行のコメントを外す(全ユーザーが全員の位置を読めるようになる)。
+# pattern read owntracks/+/+
