@@ -75,6 +75,6 @@ jobs:
       - name: Mosquitto 設定の検証
         run: |
           docker run --rm -v "$PWD/mosquitto/config:/mosquitto/config" eclipse-mosquitto:2.0.23 sh -c \
-            'mosquitto_passwd -c -b /tmp/passwd api x && sed "s#/mosquitto/config/passwd#/tmp/passwd#" /mosquitto/config/mosquitto.conf > /tmp/m.conf && mosquitto -c /tmp/m.conf & pid=$!; sleep 3; kill -0 $pid'
+            'mosquitto_passwd -c -b /tmp/passwd api x && chown mosquitto /tmp/passwd && sed "s#/mosquitto/config/passwd#/tmp/passwd#" /mosquitto/config/mosquitto.conf > /tmp/m.conf && mosquitto -c /tmp/m.conf & pid=$!; sleep 3; kill -0 $pid'
       - name: API イメージのビルド
         run: docker build -f api/Dockerfile -t map-tracking-api:ci .
