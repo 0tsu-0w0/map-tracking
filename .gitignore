@@ -1,2 +1,6 @@
 .env
 mosquitto/config/passwd
+backups/
+__pycache__/
+.pytest_cache/
+.venv/

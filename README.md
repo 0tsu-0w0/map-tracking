@@ -1,4 +1,4 @@
-# OwnTracks 位置記録サーバー(案A)
+# OwnTracks 位置記録サーバー
 
 OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks Recorder で保存・地図表示する。
 参考構成(oYAs-me/tracks-position)との違いは次の 4 点。
@@ -8,7 +8,16 @@ OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks 
 - Mosquitto と Recorder はポートを公開せず、Docker 内部ネットワークだけで通信する
 - イメージのバージョンを固定した(`latest` を使わない)
 
-機能要件・非機能要件・今後の拡張(案B)は [docs/requirements.md](docs/requirements.md) を参照。
+機能要件・非機能要件は [docs/requirements.md](docs/requirements.md) を参照。
+
+このリポジトリには 2 つの構成がある。スマホ(OwnTracks)の設定はどちらも同じ。
+
+| 構成 | 中身 | 手順 |
+| --- | --- | --- |
+| 案A(このページ) | Mosquitto + OwnTracks Recorder + Caddy。設定ファイルだけで動く | 以下 |
+| 案B | Mosquitto + 自作 API(FastAPI)+ PostgreSQL/PostGIS + 自作の地図画面。共有設定・管理画面・書き出し・自動削除・バックアップ付き | [docs/plan-b.md](docs/plan-b.md) |
+
+以下は案A の手順。
 
 ## 構成
 
@@ -35,7 +44,7 @@ OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks 
 ```bash
 # 1. 設定ファイルを作る
 cp .env.example .env
-#    .env のドメイン・RECORDER_MQTT_PASS を書き換える
+#    .env のドメイン・ACME_EMAIL・RECORDER_MQTT_PASS を書き換える
 
 # 2. 地図画面のパスワードハッシュを作り、.env の WEB_PASS_HASH にシングルクォートで囲んで貼る
 bash scripts/hash-web-password.sh

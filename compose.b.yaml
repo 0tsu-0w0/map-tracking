@@ -1,0 +1,128 @@
+# 案B: OwnTracks + Mosquitto(認証・ACL) + 自作 API + PostgreSQL/PostGIS + Caddy
+# 外部に開くのは 80/443 だけ。Mosquitto・API・DB は内部ネットワークのみ。
+# .env に COMPOSE_FILE=compose.b.yaml を書くと、docker compose がこのファイルを使う。
+
+services:
+  caddy:
+    image: caddy:2.11.9
+    container_name: ot-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MQTT_DOMAIN: ${MQTT_DOMAIN:?MQTT_DOMAIN を .env に設定してください}
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN を .env に設定してください}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL を .env に設定してください}
+    volumes:
+      - ./caddy/Caddyfile.b:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - mosquitto
+      - api
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0.23
+    container_name: ot-mosquitto
+    restart: unless-stopped
+    expose:
+      - "1883"
+      - "9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  db:
+    image: postgis/postgis:16-3.7
+    container_name: ot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tracking
+      POSTGRES_USER: tracking
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD を .env に設定してください}
+      TZ: ${TZ:-Asia/Tokyo}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracking -d tracking"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: map-tracking-api:local
+    container_name: ot-api
+    restart: unless-stopped
+    environment:
+      # DB の接続先(URL にするとパスワードの記号でつまずくため、libpq の環境変数で渡す)
+      PGHOST: db
+      PGDATABASE: tracking
+      PGUSER: tracking
+      PGPASSWORD: ${DB_PASSWORD}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_USER: ${API_MQTT_USER:-api}
+      MQTT_PASS: ${API_MQTT_PASS:?API_MQTT_PASS を .env に設定してください}
+      RETENTION_DAYS: ${RETENTION_DAYS:-365}
+      MAP_STYLE_URL: ${MAP_STYLE_URL:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_STALE_HOURS: ${ALERT_STALE_HOURS:-0}
+      INITIAL_ADMIN_USER: ${INITIAL_ADMIN_USER:-}
+      INITIAL_ADMIN_PASS: ${INITIAL_ADMIN_PASS:-}
+      TZ: ${TZ:-Asia/Tokyo}
+    expose:
+      - "8000"
+    volumes:
+      # 案A の Recorder の保存データ(取り込み用、読み取り専用)
+      - recorder_store:/recorder:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+
+  # 毎日 DB をダンプして ./backups に置く(BACKUP_KEEP 世代残す)
+  backup:
+    image: postgis/postgis:16-3.7
+    container_name: ot-backup
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGDATABASE: tracking
+      PGUSER: tracking
+      PGPASSWORD: ${DB_PASSWORD}
+      KEEP: ${BACKUP_KEEP:-7}
+      TZ: ${TZ:-Asia/Tokyo}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/tracking-$$(date +%F).dump
+          if pg_dump -Fc -f "$$f.tmp"; then mv "$$f.tmp" "$$f"; echo "backup: $$f"; else rm -f "$$f.tmp"; fi
+          ls -1t /backups/tracking-*.dump 2>/dev/null | tail -n +$$((KEEP + 1)) | xargs -r rm -f --
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:
+  mosquitto_data:
+  mosquitto_log:
+  db_data:
+  recorder_store:

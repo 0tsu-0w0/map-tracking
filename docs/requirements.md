@@ -108,7 +108,7 @@
 | A: Recorder 利用 | Mosquitto + OwnTracks Recorder + リバースプロキシ | 1〜2 日 | すぐ使える。画面の改造や共有設定は難しく、データはファイル保存 |
 | B: 自作 | Mosquitto + 自作 API + PostgreSQL/PostGIS + 自作地図画面 | 3〜6 週 | F-10〜F-15 まで自由に作れる。学習にも向く |
 
-案 A の実装はこのリポジトリ直下の `compose.yaml` ほか(手順は [README.md](../README.md))。
+案 A の実装はこのリポジトリ直下の `compose.yaml` ほか(手順は [README.md](../README.md))。案 B の実装は `compose.b.yaml`・`api/`・`web/`(手順と実装範囲は [plan-b.md](plan-b.md))。
 
 ### 5.1 技術選定(案 B)
 
@@ -151,12 +151,12 @@ flowchart LR
 
 ## 6. データモデル・API 設計(案 B)
 
-テーブルは 4 つで足りる。位置履歴は増え続けるので、`(device_id, recorded_at)` の複合インデックスと地点の GiST インデックスを張る。
+テーブルは 4 つ(実装ではログイン用の sessions を加えた 5 つ)。位置履歴は増え続けるので、`(device_id, recorded_at)` の複合インデックスと地点の GiST インデックスを張る。
 
 | テーブル | 主な列 | 備考 |
 | --- | --- | --- |
-| users | id, name, password_hash, role(admin / member), created_at | Web ログイン用 |
-| devices | id, user_id, name, tid(2 文字), mqtt_username, last_seen_at | 1 人複数端末可 |
+| users | id, name, password_hash, role(admin / member), disabled, created_at | Web ログイン用。name は MQTT のユーザー名と同じにする |
+| devices | id, user_id, name, tid(2 文字), last_seen_at | 1 人複数端末可。name は OwnTracks の Device ID |
 | locations | id, device_id, recorded_at(tst), received_at, geom(Point, 4326), accuracy_m, altitude_m, velocity_kmh, battery_pct, conn, raw(jsonb) | 生 JSON も保持して後から項目を足せるようにする |
 | shares | owner_user_id, viewer_user_id, created_at | F-13 用。誰が誰を見られるか |
 

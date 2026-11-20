@@ -1,5 +1,10 @@
-# --- Recorder: 全員の位置を読むだけ ---
+# --- サービス用アカウント: 全員の位置を読むだけ ---
+# 案A の Recorder
 user recorder
+topic read owntracks/#
+
+# 案B の自作 API
+user api
 topic read owntracks/#
 
 # --- 端末(全ユーザー共通) ---
