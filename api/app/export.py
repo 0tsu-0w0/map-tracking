@@ -47,9 +47,18 @@ def row(fmt: str, r: dict, first: bool) -> str:
         return ("" if first else ",\n") + json.dumps(feature, ensure_ascii=False)
     buf = io.StringIO()
     csv.writer(buf, lineterminator="\n").writerow(
-        [_iso(r["recorded_at"]) if k == "recorded_at" else ("" if r.get(k) is None else r[k]) for k in CSV_COLUMNS]
+        [_iso(r["recorded_at"]) if k == "recorded_at" else _cell(r.get(k)) for k in CSV_COLUMNS]
     )
     return buf.getvalue()
+
+
+def _cell(v):
+    """表計算ソフトで数式として実行されないよう、記号で始まる文字列の先頭に ' を付ける(CSV インジェクション対策)。"""
+    if v is None:
+        return ""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
 
 
 def footer(fmt: str) -> str:

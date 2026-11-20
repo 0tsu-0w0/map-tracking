@@ -10,10 +10,11 @@ import aiomqtt
 from . import db
 from .config import Settings
 from .hub import Hub
-from .ingest import save_location
-from .owntracks import parse_location, parse_topic
+from .ingest import ingest_payload
+from .owntracks import parse_topic
 
 log = logging.getLogger(__name__)
+MAX_PAYLOAD = 64 * 1024
 
 
 @dataclass
@@ -22,28 +23,17 @@ class MqttState:
     last_message_at: datetime | None = None
 
 
-async def handle_message(hub: Hub, state: MqttState, topic: str, payload: bytes) -> dict | None:
+async def handle_message(hub: Hub, state: MqttState, topic: str, payload: bytes) -> list[dict]:
     state.last_message_at = datetime.now(timezone.utc)
     names = parse_topic(topic)
-    if names is None:
-        return None
+    if names is None or len(payload) > MAX_PAYLOAD:
+        return []
     try:
         data = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         log.warning("JSON でないメッセージを無視しました: %s", topic)
-        return None
-    if isinstance(data, dict) and data.get("_type") == "encrypted":
-        log.warning("暗号化ペイロードは未対応のため無視しました: %s", topic)
-        return None
-    loc = parse_location(data)
-    if loc is None:
-        return None
-    pool = db.get_pool()
-    async with pool.acquire() as conn:
-        event = await save_location(conn, names[0], names[1], loc)
-    if event:
-        await hub.broadcast(pool, event)
-    return event
+        return []
+    return await ingest_payload(db.get_pool(), hub, names[0], names[1], data)
 
 
 async def run(settings: Settings, hub: Hub, state: MqttState) -> None:
@@ -62,10 +52,11 @@ async def run(settings: Settings, hub: Hub, state: MqttState) -> None:
                 identifier="map-tracking-api",
                 clean_session=False,
             ) as client:
-                await client.subscribe(settings.mqtt_topic, qos=1)
+                for topic in settings.mqtt_topics:
+                    await client.subscribe(topic, qos=1)
                 state.connected = True
                 delay = 1
-                log.info("MQTT に接続しました (%s を購読)", settings.mqtt_topic)
+                log.info("MQTT に接続しました (%s を購読)", ", ".join(settings.mqtt_topics))
                 async for message in client.messages:
                     try:
                         await handle_message(hub, state, message.topic.value, bytes(message.payload))

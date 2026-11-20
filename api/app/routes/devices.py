@@ -1,4 +1,6 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -15,6 +17,8 @@ _POINT_COLS = """
     velocity_kmh, battery_pct, conn
 """
 _RANGE = "($2::timestamptz IS NULL OR recorded_at >= $2) AND ($3::timestamptz IS NULL OR recorded_at < $3)"
+# 書き出しは DB 接続を握ったまま流すので、同時に流す数を絞る(接続プールを使い切らせない)
+_EXPORT_SLOTS = asyncio.Semaphore(3)
 
 
 @router.get("")
@@ -122,9 +126,12 @@ async def export_locations(
     media_type, ext = export.FORMATS[format]
     title = f"{dev['user_name']}/{dev['name']}"
 
+    if _EXPORT_SLOTS.locked():
+        raise HTTPException(429, "ほかの書き出しが終わってから試してください")
+
     async def stream():
         yield export.header(format, title)
-        async with pool.acquire() as conn, conn.transaction():
+        async with _EXPORT_SLOTS, pool.acquire() as conn, conn.transaction():
             first = True
             async for r in conn.cursor(
                 f"SELECT {_POINT_COLS} FROM locations WHERE device_id = $1 AND {_RANGE} ORDER BY recorded_at",
@@ -136,10 +143,11 @@ async def export_locations(
                 first = False
         yield export.footer(format)
 
-    filename = f"{dev['user_name']}-{dev['name']}.{ext}".replace('"', "")
-    return StreamingResponse(
-        stream(), media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
+    # 名前に日本語などが含まれてもヘッダーが壊れないよう、RFC 5987 形式でも渡す
+    filename = f"{dev['user_name']}-{dev['name']}.{ext}"
+    ascii_name = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;' else "_" for c in filename)
+    disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
+    return StreamingResponse(stream(), media_type=media_type, headers={"Content-Disposition": disposition})
 
 
 @router.delete("/{device_id}/locations")

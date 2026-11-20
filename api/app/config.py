@@ -29,7 +29,7 @@ class Settings:
     mqtt_port: int
     mqtt_user: str
     mqtt_pass: str
-    mqtt_topic: str
+    mqtt_topics: tuple[str, ...]  # 購読するトピック(カンマ区切りで指定)
     retention_days: int  # 0 なら自動削除しない
     tz: ZoneInfo
     cookie_secure: bool
@@ -38,6 +38,7 @@ class Settings:
     max_points: int
     alert_webhook_url: str
     alert_stale_hours: float  # 0 なら通知しない
+    notify_device_transitions: bool  # OwnTracks 側の Regions の出入りも Webhook で通知するか
     static_dir: str
     initial_admin_user: str
     initial_admin_pass: str
@@ -50,7 +51,9 @@ class Settings:
             mqtt_port=_int("MQTT_PORT", 1883),
             mqtt_user=os.environ.get("MQTT_USER", "api"),
             mqtt_pass=os.environ.get("MQTT_PASS", ""),
-            mqtt_topic=os.environ.get("MQTT_TOPIC", "owntracks/+/+"),
+            mqtt_topics=tuple(
+                t.strip() for t in os.environ.get("MQTT_TOPICS", "owntracks/+/+,owntracks/+/+/event").split(",") if t.strip()
+            ),
             retention_days=_int("RETENTION_DAYS", 365),
             tz=ZoneInfo(os.environ.get("TZ") or "Asia/Tokyo"),
             cookie_secure=_bool("COOKIE_SECURE", True),
@@ -59,6 +62,7 @@ class Settings:
             max_points=_int("MAX_POINTS", 20000),
             alert_webhook_url=os.environ.get("ALERT_WEBHOOK_URL", ""),
             alert_stale_hours=_float("ALERT_STALE_HOURS", 0),
+            notify_device_transitions=_bool("NOTIFY_DEVICE_TRANSITIONS", True),
             static_dir=os.environ.get("STATIC_DIR", "/app/static"),
             initial_admin_user=os.environ.get("INITIAL_ADMIN_USER", ""),
             initial_admin_pass=os.environ.get("INITIAL_ADMIN_PASS", ""),

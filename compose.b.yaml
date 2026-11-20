@@ -83,6 +83,8 @@ services:
       TZ: ${TZ:-Asia/Tokyo}
     expose:
       - "8000"
+    security_opt:
+      - no-new-privileges:true
     volumes:
       # 案A の Recorder の保存データ(取り込み用、読み取り専用)
       - recorder_store:/recorder:ro
@@ -109,6 +111,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        umask 077
         while true; do
           f=/backups/tracking-$$(date +%F).dump
           if pg_dump -Fc -f "$$f.tmp"; then mv "$$f.tmp" "$$f"; echo "backup: $$f"; else rm -f "$$f.tmp"; fi

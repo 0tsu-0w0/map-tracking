@@ -30,8 +30,11 @@ def valid_name(s: str | None) -> bool:
 
 
 def parse_topic(topic: str) -> tuple[str, str] | None:
-    """owntracks/<user>/<device> を (user, device) にする。event や cmd などのサブトピックは対象外。"""
+    """owntracks/<user>/<device>(位置)と owntracks/<user>/<device>/event(出入り)を (user, device) にする。
+    cmd・info・waypoints などほかのサブトピックは対象外。"""
     parts = topic.split("/")
+    if len(parts) == 4 and parts[3] == "event":
+        parts = parts[:3]
     if len(parts) != 3 or parts[0] != "owntracks":
         return None
     user, device = parts[1], parts[2]
@@ -78,3 +81,51 @@ def parse_location(payload: Any) -> Location | None:
         tid=tid[:8] if isinstance(tid, str) and tid else None,
         raw=payload,
     )
+
+
+@dataclass(frozen=True)
+class Transition:
+    """OwnTracks の端末側ジオフェンス(Regions)の出入り。"""
+
+    occurred_at: datetime
+    event: str  # enter / leave
+    place_name: str
+    lat: float | None
+    lon: float | None
+
+
+def parse_transition(payload: Any) -> Transition | None:
+    if not isinstance(payload, dict) or payload.get("_type") != "transition":
+        return None
+    event, desc, tst = payload.get("event"), payload.get("desc"), _num(payload.get("tst"))
+    if event not in ("enter", "leave") or tst is None or tst <= 0:
+        return None
+    name = desc.strip()[:100] if isinstance(desc, str) and desc.strip() else "(名前なし)"
+    try:
+        occurred_at = datetime.fromtimestamp(int(tst), tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+    lat, lon = _num(payload.get("lat")), _num(payload.get("lon"))
+    return Transition(occurred_at=occurred_at, event=event, place_name=name, lat=lat, lon=lon)
+
+
+def decrypt_payload(payload: Any, secret: str) -> Any | None:
+    """OwnTracks の暗号化ペイロード({"_type":"encrypted","data":...})を復号する。
+
+    鍵は利用者が端末に入れた文字列(UTF-8)を 32 バイトに切り詰め・0 埋めしたもの。
+    data は base64(nonce 24 バイト + libsodium secretbox の暗号文)。失敗したら None。
+    """
+    import base64
+    import json
+
+    from nacl.exceptions import CryptoError
+    from nacl.secret import SecretBox
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), str):
+        return None
+    key = secret.encode("utf-8")[:32].ljust(32, bytes(1))
+    try:
+        plain = SecretBox(key).decrypt(base64.b64decode(payload["data"], validate=True))
+        return json.loads(plain)
+    except (CryptoError, ValueError, UnicodeDecodeError, RecursionError):
+        return None

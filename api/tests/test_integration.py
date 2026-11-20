@@ -18,7 +18,7 @@ def _reset_db():
     async def run():
         conn = await asyncpg.connect(os.environ["DATABASE_URL"])
         try:
-            for t in ("sessions", "shares", "locations", "devices", "users"):
+            for t in ("place_events", "place_presence", "places", "sessions", "shares", "locations", "devices", "users"):
                 await conn.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
         finally:
             await conn.close()
@@ -132,10 +132,10 @@ def test_mqtt_message_creates_user_and_device(client):
     from app import mqtt
 
     payload = json.dumps(loc(NOW - 10, tid="jr")).encode()
-    ev = client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/jiro/android", payload)
-    assert ev is not None and ev["user_name"] == "jiro"
+    evs = client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/jiro/android", payload)
+    assert len(evs) == 1 and evs[0]["user_name"] == "jiro"
     again = client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/jiro/android", payload)
-    assert again is None  # 重複
+    assert again == []  # 重複
     users = {u["name"]: u for u in client.get("/api/admin/users", headers=state["admin"]).json()}
     assert users["jiro"]["has_password"] is False and users["jiro"]["devices"] == 1
 
@@ -195,3 +195,89 @@ def test_password_change(client):
 
 def test_healthz(client):
     assert client.get("/healthz").json()["db"] == "ok"
+
+
+def test_export_filename_with_japanese_device(client):
+    client.post("/api/pub", json=loc(NOW - 5), headers={**basic("taro", "taro-password-2"), "X-Limit-D": "スマホ"})
+    devs = {d["name"]: d for d in client.get("/api/devices", headers=state["taro"]).json()}
+    r = client.get(f"/api/devices/{devs['スマホ']['id']}/export?format=csv", headers=state["taro"])
+    assert r.status_code == 200
+    assert "filename*=UTF-8''taro-%E3%82%B9" in r.headers["content-disposition"]
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_encrypted_payload(client):
+    from test_units import encrypt_like_owntracks
+
+    from app import mqtt
+
+    h = state["taro"]
+    assert client.put("/api/auth/encryption-key", json={"key": "family secret"}, headers=h).status_code == 204
+    assert client.get("/api/auth/me", headers=h).json()["has_enc_key"] is True
+    enc = json.dumps(encrypt_like_owntracks(loc(NOW - 3, lat=35.1), "family secret")).encode()
+    evs = client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/taro/phone", enc)
+    assert len(evs) == 1 and evs[0]["lat"] == 35.1
+    bad = json.dumps(encrypt_like_owntracks(loc(NOW - 2), "wrong key")).encode()
+    assert client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/taro/phone", bad) == []
+    assert client.put("/api/auth/encryption-key", json={"key": None}, headers=h).status_code == 204
+
+
+def test_places_enter_and_leave(client):
+    from app import mqtt
+
+    h, admin = state["taro"], state["admin"]
+    # 東京駅のまわり 200 m を登録
+    r = client.post("/api/places", json={"name": "東京駅", "lat": 35.6812, "lon": 139.7671, "radius_m": 200}, headers=h)
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+    assert [p["name"] for p in client.get("/api/places", headers=h).json()] == ["東京駅"]
+
+    def send(t, lat, lon):
+        payload = json.dumps(loc(t, lat=lat, lon=lon, acc=10)).encode()
+        return client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/taro/phone", payload)
+
+    base = NOW + 100
+    first = send(base, 35.70, 139.70)  # 遠く(初回は状態を覚えるだけ)
+    assert [e["type"] for e in first] == ["location"]
+    entered = send(base + 60, 35.6815, 139.7670)
+    assert [(e["type"], e.get("event")) for e in entered] == [("location", None), ("place", "enter")]
+    assert send(base + 120, 35.6820, 139.7672)[1:] == []  # 中にいる間は何も起きない
+    # 境界のすぐ外(半径 + 余裕の内側)ではまだ出ていない
+    assert send(base + 180, 35.6812 + 0.0020, 139.7671)[1:] == []
+    left = send(base + 240, 35.69, 139.78)
+    assert left[1]["event"] == "leave"
+    # 過去の点(後から届いた古い位置)では判定しない
+    assert send(base - 30, 35.6812, 139.7671)[1:] == []
+
+    dev = left[0]["device_id"]
+    evs = client.get(f"/api/devices/{dev}/events", headers=h).json()
+    assert [e["event"] for e in evs] == ["leave", "enter"]
+    assert client.get(f"/api/devices/{dev}/events", headers=admin).status_code == 200
+    # 場所を消しても記録は残る
+    assert client.delete(f"/api/places/{pid}", headers=h).status_code == 204
+    assert len(client.get(f"/api/devices/{dev}/events", headers=h).json()) == 2
+    # 他人の場所は消せない
+    assert client.delete(f"/api/places/{pid}", headers=admin).status_code == 404
+
+
+def test_device_transition(client):
+    from app import mqtt
+
+    payload = json.dumps({"_type": "transition", "event": "enter", "desc": "会社", "tst": NOW + 500, "lat": 35, "lon": 139}).encode()
+    evs = client.portal.call(mqtt.handle_message, client.app.state.hub, client.app.state.mqtt, "owntracks/taro/phone/event", payload)
+    assert len(evs) == 1 and evs[0]["source"] == "device" and evs[0]["place_name"] == "会社"
+    dev = evs[0]["device_id"]
+    names = [e["place_name"] for e in client.get(f"/api/devices/{dev}/events", headers=state["taro"]).json()]
+    assert "会社" in names
+
+
+def test_login_limit_per_user(client):
+    from app.auth import limiter
+
+    try:
+        for _ in range(10):
+            client.post("/api/auth/login", json={"name": "jiro", "password": "wrong"}, headers=FETCH)
+        r = client.post("/api/auth/login", json={"name": "jiro", "password": "wrong"}, headers=FETCH)
+        assert r.status_code == 429
+    finally:
+        limiter._fails.clear()

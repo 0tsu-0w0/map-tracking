@@ -12,10 +12,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, mqtt, tasks
-from .auth import hash_password
+from .auth import hash_password_async
 from .config import settings
 from .hub import Hub
-from .routes import admin, auth, devices, pub, shares, ws
+from .routes import admin, auth, devices, places, pub, shares, ws
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("app")
@@ -35,7 +35,7 @@ async def bootstrap_admin() -> None:
         WHERE users.password_hash IS NULL
         """,
         name,
-        hash_password(password),
+        await hash_password_async(password),
     )
     if not status.endswith(" 0"):
         log.info("管理者 %s を作成しました", name)
@@ -81,10 +81,14 @@ async def csrf_guard(request: Request, call_next):
         and request.headers.get("x-requested-with") != "fetch"
     ):
         return JSONResponse({"detail": "X-Requested-With: fetch が必要です"}, status_code=403)
-    return await call_next(request)
+    response = await call_next(request)
+    if path.startswith("/api/"):
+        # 位置情報をブラウザや途中のキャッシュに残さない
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
-for r in (auth.router, devices.router, admin.router, shares.router, pub.router, ws.router):
+for r in (auth.router, devices.router, places.router, admin.router, shares.router, pub.router, ws.router):
     app.include_router(r)
 
 

@@ -13,7 +13,7 @@ SAMPLE = {"_type": "location", "tid": "ab", "lat": 35.6812, "lon": 139.7671, "ac
 
 def test_parse_topic():
     assert parse_topic("owntracks/taro/iphone") == ("taro", "iphone")
-    assert parse_topic("owntracks/taro/iphone/event") is None
+    assert parse_topic("owntracks/taro/iphone/info") is None
     assert parse_topic("owntracks/taro") is None
     assert parse_topic("other/taro/iphone") is None
     assert parse_topic("owntracks//iphone") is None
@@ -103,3 +103,73 @@ def test_rec_parsing(tmp_path):
         "2026-01-01T00:00:00Z\t*\t" + json.dumps(SAMPLE) + "\nbroken line\n", encoding="utf-8"
     )
     assert [(u, dev, p["tid"]) for u, dev, p in iter_rec_dir(tmp_path)] == [("taro", "iphone", "ab")]
+
+
+def test_parse_topic_event_subtopic():
+    assert parse_topic("owntracks/taro/iphone/event") == ("taro", "iphone")
+    assert parse_topic("owntracks/taro/iphone/cmd") is None
+
+
+def test_parse_transition():
+    from app.owntracks import parse_transition
+
+    tr = parse_transition({"_type": "transition", "event": "enter", "desc": "自宅", "tst": 1763600000, "lat": 35, "lon": 139})
+    assert tr is not None and (tr.event, tr.place_name) == ("enter", "自宅")
+    assert parse_transition({"_type": "transition", "event": "dwell", "tst": 1}) is None
+    assert parse_transition({"_type": "transition", "event": "leave", "tst": 1763600000}).place_name == "(名前なし)"
+
+
+def encrypt_like_owntracks(payload: dict, secret: str) -> dict:
+    import base64
+
+    from nacl.secret import SecretBox
+    from nacl.utils import random
+
+    key = secret.encode()[:32].ljust(32, bytes(1))
+    box = SecretBox(key)
+    data = box.encrypt(json.dumps(payload).encode(), random(SecretBox.NONCE_SIZE))
+    return {"_type": "encrypted", "data": base64.b64encode(bytes(data)).decode()}
+
+
+def test_decrypt_payload():
+    from app.owntracks import decrypt_payload
+
+    enc = encrypt_like_owntracks(SAMPLE, "my secret")
+    assert decrypt_payload(enc, "my secret") == SAMPLE
+    assert decrypt_payload(enc, "wrong") is None
+    assert decrypt_payload({"_type": "encrypted", "data": "!!!"}, "my secret") is None
+    assert decrypt_payload({"_type": "encrypted"}, "my secret") is None
+
+
+def test_csv_injection_is_neutralised():
+    row = {**ROWS[1], "conn": "=HYPERLINK(1)"}
+    assert "'=HYPERLINK(1)" in export.render("csv", "t", [row])
+
+
+def test_limiter_counts_per_user_too():
+    import pytest
+    from fastapi import HTTPException
+
+    lim = FailureLimiter(limit=2, window_s=60)
+    lim.fail("ip:1", "user:taro")
+    lim.fail("ip:2", "user:taro")
+    with pytest.raises(HTTPException):
+        lim.check("ip:3", "user:taro")  # 別の IP からでも、同じ利用者は止まる
+    lim.check("ip:3", "user:hanako")
+
+
+def test_limiter_does_not_grow_forever():
+    lim = FailureLimiter(limit=5, window_s=0.0, max_keys=100)
+    for i in range(1000):
+        lim.fail(f"ip:{i}")
+    assert len(lim._fails) <= 100
+
+
+def test_credential_cache():
+    from app.auth import CredentialCache
+
+    c = CredentialCache(ttl_s=60)
+    c.add("taro", "pw", "hash1")
+    assert c.hit("taro", "pw", "hash1")
+    assert not c.hit("taro", "other", "hash1")
+    assert not c.hit("taro", "pw", "hash2")  # パスワードが変わったら使わない

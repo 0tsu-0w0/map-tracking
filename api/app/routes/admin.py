@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import db
-from ..auth import hash_password, require_admin
+from ..auth import hash_password_async, require_admin
 from ..owntracks import USER_NAME_RE
 
 router = APIRouter(prefix="/api/admin")
@@ -52,7 +52,7 @@ async def create_user(body: UserCreate, _=Depends(require_admin)):
         uid = await db.get_pool().fetchval(
             "INSERT INTO users (name, password_hash, role) VALUES ($1, $2, $3) RETURNING id",
             body.name,
-            hash_password(body.password) if body.password else None,
+            await hash_password_async(body.password) if body.password else None,
             body.role,
         )
     except asyncpg.UniqueViolationError:
@@ -64,13 +64,14 @@ async def create_user(body: UserCreate, _=Depends(require_admin)):
 async def update_user(user_id: int, body: UserPatch, admin=Depends(require_admin)):
     if user_id == admin["id"] and (body.role == "member" or body.disabled):
         raise HTTPException(400, "自分自身の管理者権限は外せません")
+    new_hash = await hash_password_async(body.password) if body.password is not None else None
     pool = db.get_pool()
     async with pool.acquire() as conn, conn.transaction():
         exists = await conn.fetchval("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", user_id)
         if not exists:
             raise HTTPException(404, "利用者が見つかりません")
         if body.password is not None:
-            await conn.execute("UPDATE users SET password_hash = $2 WHERE id = $1", user_id, hash_password(body.password))
+            await conn.execute("UPDATE users SET password_hash = $2 WHERE id = $1", user_id, new_hash)
         if body.role is not None:
             await conn.execute("UPDATE users SET role = $2 WHERE id = $1", user_id, body.role)
         if body.disabled is not None:
