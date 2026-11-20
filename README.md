@@ -8,6 +8,8 @@ OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks 
 - Mosquitto と Recorder はポートを公開せず、Docker 内部ネットワークだけで通信する
 - イメージのバージョンを固定した(`latest` を使わない)
 
+機能要件・非機能要件・今後の拡張(案B)は [docs/requirements.md](docs/requirements.md) を参照。
+
 ## 構成
 
 ```
