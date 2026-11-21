@@ -71,6 +71,8 @@ flowchart LR
 
 ## セットアップ(新規)
 
+> スクリプトでまとめて行う手順は [deploy.md](deploy.md)(`scripts/setup.sh`・`scripts/member.sh`)。以下は手作業で行う場合。
+
 前提は案A と同じ(Docker・DNS 2 つ・80/443 を開ける)。[README](../README.md) の「準備」を参照。
 
 ```bash

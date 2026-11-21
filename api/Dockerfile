@@ -1,6 +1,6 @@
 # ビルドの起点はリポジトリ直下(compose.b.yaml の build.context: .)
-# 1) 地図画面をビルド
-FROM node:22-alpine AS web
+# 1) 地図画面をビルド(出力は CPU に依存しないので、ビルドするマシンの CPU で動かす)
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-fund --no-audit
@@ -9,6 +9,8 @@ RUN npm run build
 
 # 2) API と、ビルド済みの地図画面を 1 つのイメージにする
 FROM python:3.12-slim
+LABEL org.opencontainers.image.source=https://github.com/0tsu-0w0/map-tracking \
+      org.opencontainers.image.description="map-tracking API と地図画面(案B)"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 STATIC_DIR=/app/static
 WORKDIR /app
 COPY api/requirements.txt .

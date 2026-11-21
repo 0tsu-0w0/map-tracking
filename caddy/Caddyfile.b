@@ -1,5 +1,7 @@
 {
 	email {$ACME_EMAIL}
+	# お試し(--local)のときは local_certs が入り、自己署名の証明書を使う
+	{$CADDY_GLOBAL_OPTIONS}
 }
 
 # MQTT over WebSocket(OwnTracks アプリの接続先)。案A と同じ

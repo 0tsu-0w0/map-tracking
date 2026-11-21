@@ -2,11 +2,19 @@
 # 外部に開くのは 80/443 だけ。Mosquitto・API・DB は内部ネットワークのみ。
 # .env に COMPOSE_FILE=compose.b.yaml を書くと、docker compose がこのファイルを使う。
 
+# コンテナのログは 10 MB × 3 ファイルで回す(ディスクを使い切らないため)
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2.11.9
     container_name: ot-caddy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -15,6 +23,7 @@ services:
       MQTT_DOMAIN: ${MQTT_DOMAIN:?MQTT_DOMAIN を .env に設定してください}
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN を .env に設定してください}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL を .env に設定してください}
+      CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
     volumes:
       - ./caddy/Caddyfile.b:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -27,6 +36,7 @@ services:
     image: eclipse-mosquitto:2.0.23
     container_name: ot-mosquitto
     restart: unless-stopped
+    logging: *default-logging
     expose:
       - "1883"
       - "9001"
@@ -44,6 +54,7 @@ services:
     image: postgis/postgis:16-3.7
     container_name: ot-db
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: tracking
       POSTGRES_USER: tracking
@@ -64,6 +75,7 @@ services:
     image: map-tracking-api:local
     container_name: ot-api
     restart: unless-stopped
+    logging: *default-logging
     environment:
       # DB の接続先(URL にするとパスワードの記号でつまずくため、libpq の環境変数で渡す)
       PGHOST: db
@@ -100,6 +112,7 @@ services:
     image: postgis/postgis:16-3.7
     container_name: ot-backup
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PGHOST: db
       PGDATABASE: tracking

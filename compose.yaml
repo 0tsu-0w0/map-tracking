@@ -1,11 +1,19 @@
 # 案A: OwnTracks + Mosquitto(認証・ACL) + Recorder + Caddy
 # 外部に開くのは 80/443 だけ。Mosquitto と Recorder は内部ネットワークのみ。
 
+# コンテナのログは 10 MB × 3 ファイルで回す(ディスクを使い切らないため)
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2.11.9
     container_name: ot-caddy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"        # 証明書取得(HTTP-01)と HTTPS へのリダイレクト
       - "443:443"
@@ -14,6 +22,7 @@ services:
       MQTT_DOMAIN: ${MQTT_DOMAIN:?MQTT_DOMAIN を .env に設定してください}
       APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN を .env に設定してください}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL を .env に設定してください}
+      CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
       WEB_USER: ${WEB_USER:?WEB_USER を .env に設定してください}
       WEB_PASS_HASH: ${WEB_PASS_HASH:?WEB_PASS_HASH を .env に設定してください}
     volumes:
@@ -28,6 +37,7 @@ services:
     image: eclipse-mosquitto:2.0.23
     container_name: ot-mosquitto
     restart: unless-stopped
+    logging: *default-logging
     # ポートは公開しない(Caddy が内部ネットワーク経由で 9001 に中継)
     expose:
       - "1883"
@@ -46,6 +56,7 @@ services:
     image: owntracks/recorder:1.0.7
     container_name: ot-recorder
     restart: unless-stopped
+    logging: *default-logging
     environment:
       OTR_HOST: mosquitto
       OTR_PORT: 1883

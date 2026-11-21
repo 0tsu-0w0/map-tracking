@@ -67,6 +67,11 @@ jobs:
           sed -i 's/^WEB_PASS_HASH=.*/WEB_PASS_HASH=x/; s/^API_MQTT_PASS=.*/API_MQTT_PASS=x/; s/^DB_PASSWORD=.*/DB_PASSWORD=x/' .env
           docker compose -f compose.yaml config --quiet
           docker compose -f compose.b.yaml config --quiet
+          docker compose -f compose.b.yaml -f compose.prebuilt.yaml config --quiet
+      - name: シェルスクリプトの検証
+        run: |
+          for f in scripts/*.sh e2e/*.sh; do bash -n "$f"; done
+          shellcheck -S warning -x scripts/*.sh e2e/*.sh
       - name: Caddyfile の検証
         run: |
           for f in Caddyfile Caddyfile.b; do
@@ -81,3 +86,44 @@ jobs:
             'mosquitto_passwd -c -b /tmp/passwd api x && chown mosquitto /tmp/passwd && sed "s#/mosquitto/config/passwd#/tmp/passwd#" /mosquitto/config/mosquitto.conf > /tmp/m.conf && mosquitto -c /tmp/m.conf & pid=$!; sleep 3; kill -0 $pid'
       - name: API イメージのビルド
         run: docker build -f api/Dockerfile -t map-tracking-api:ci .
+
+  # 構成一式を起動し、スマホと同じ経路(WSS → Caddy → Mosquitto → API)で通しテストする
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: api/requirements*.txt
+      - run: pip install -r api/requirements.txt -r api/requirements-dev.txt
+      - run: bash e2e/run.sh
+      - name: 失敗したときのログ
+        if: failure()
+        run: |
+          docker compose ps --all || true
+          docker compose logs --tail=200 || true
+
+  # main に入ったら、API のイメージを GitHub Container Registry に公開する(amd64 / arm64)
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [api, web, compose, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: arm64 のビルド環境を用意
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --use --name multi
+      - name: ログイン
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: ビルドして公開
+        run: |
+          image=ghcr.io/${GITHUB_REPOSITORY,,}-api
+          docker buildx build --platform linux/amd64,linux/arm64 -f api/Dockerfile             -t "$image:main" -t "$image:sha-${GITHUB_SHA::7}" --push .

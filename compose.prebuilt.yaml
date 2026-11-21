@@ -1,0 +1,7 @@
+# API のイメージをサーバーでビルドせず、GitHub Container Registry から取得する。
+# .env で COMPOSE_FILE=compose.b.yaml:compose.prebuilt.yaml とすると有効になる(scripts/setup.sh --prebuilt)。
+# main ブランチに push されるたびに CI がビルドして公開している。
+services:
+  api:
+    image: ${API_IMAGE:-ghcr.io/0tsu-0w0/map-tracking-api:main}
+    pull_policy: always
