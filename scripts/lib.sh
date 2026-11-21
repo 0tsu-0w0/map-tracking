@@ -81,7 +81,8 @@ mosq_passwd_set() {
     while IFS= read -r user && IFS= read -r pass; do
       if [ -f "$f" ]; then mosquitto_passwd -b "$f" "$user" "$pass"; else mosquitto_passwd -c -b "$f" "$user" "$pass"; fi
     done
-    chown root:root "$f"
+    # このイメージは mosquitto ユーザー(1883)で読むため、所有者は 1883 にする(root にすると読めず起動しない)
+    chown 1883:1883 "$f"
     chmod 0700 "$f"
   '
 }
