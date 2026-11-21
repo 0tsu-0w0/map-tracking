@@ -15,7 +15,7 @@ OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks 
 | 構成 | 中身 | 手順 |
 | --- | --- | --- |
 | 案A(このページ) | Mosquitto + OwnTracks Recorder + Caddy。設定ファイルだけで動く | 以下 |
-| 案B | Mosquitto + 自作 API(FastAPI)+ PostgreSQL/PostGIS + 自作の地図画面。共有設定・管理画面・書き出し・自動削除・バックアップ付き | 本番に載せる手順: [docs/deploy.md](docs/deploy.md)、構成と機能: [docs/plan-b.md](docs/plan-b.md) |
+| 案B | Mosquitto + 自作 API(FastAPI)+ PostgreSQL/PostGIS + 自作の地図画面。共有設定・管理画面・書き出し・自動削除・バックアップ付き | 本番に載せる手順: [docs/deploy.md](docs/deploy.md)(サーバーが無ければ [Oracle Cloud の無料 VM](docs/oracle-cloud.md))、構成と機能: [docs/plan-b.md](docs/plan-b.md) |
 
 以下は案A の手順。
 

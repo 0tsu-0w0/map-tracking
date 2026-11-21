@@ -1,0 +1,12 @@
+#cloud-config
+# Oracle Cloud で VM(Ubuntu)を作るとき、「拡張オプションの表示 → 管理 → cloud-init スクリプト」に
+# このファイルの中身を貼り付ける。VM の起動後、数分で Docker の導入・ファイアウォールの開放・
+# スワップの作成・リポジトリの取得まで自動で終わる。
+# 進み具合は VM に SSH で入って `sudo tail -f /var/log/cloud-init-output.log` で見られる。
+package_update: true
+packages:
+  - git
+runcmd:
+  - [bash, -c, "git clone -q https://github.com/0tsu-0w0/map-tracking.git /home/ubuntu/map-tracking && chown -R ubuntu:ubuntu /home/ubuntu/map-tracking"]
+  - [bash, /home/ubuntu/map-tracking/scripts/bootstrap-ubuntu.sh, ubuntu]
+final_message: "map-tracking の準備ができました(起動から $UPTIME 秒)。ubuntu で SSH して scripts/setup.sh を実行してください。"

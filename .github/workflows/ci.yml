@@ -72,6 +72,14 @@ jobs:
         run: |
           for f in scripts/*.sh e2e/*.sh; do bash -n "$f"; done
           shellcheck -S warning -x scripts/*.sh e2e/*.sh
+      - name: VM の初期設定スクリプト(2 回実行しても壊れないか)
+        run: |
+          python3 -c "import yaml,sys; d=yaml.safe_load(open('deploy/oracle-cloud-init.yaml')); assert 'runcmd' in d"
+          head -1 deploy/oracle-cloud-init.yaml | grep -qx '#cloud-config'
+          sudo REPO_URL="$PWD" bash scripts/bootstrap-ubuntu.sh runner
+          sudo REPO_URL="$PWD" bash scripts/bootstrap-ubuntu.sh runner
+          sudo iptables -C INPUT -p tcp -m state --state NEW --dport 443 -j ACCEPT
+          test -d ~/map-tracking/.git
       - name: Caddyfile の検証
         run: |
           for f in Caddyfile Caddyfile.b; do

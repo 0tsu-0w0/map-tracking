@@ -5,17 +5,20 @@
 #   bash scripts/setup.sh --mqtt-domain mqtt.example.com --app-domain map.example.com \
 #        --email you@example.net --admin admin --yes
 #   bash scripts/setup.sh --local --yes        お試し(自分の PC で https://map.localhost を開く)
+#   bash scripts/setup.sh --sslip 203.0.113.10 独自ドメインなしで公開(sslip.io を使う)
 #
 # オプション:
 #   --mqtt-domain / --app-domain / --email / --admin <名前>
 #   --prebuilt   API のイメージをビルドせず GitHub のレジストリから取得する(メモリの少ない VPS 向け)
 #   --local      ドメインなしで試す(mqtt.localhost / map.localhost、証明書は Caddy の自己署名)
+#   --sslip <公開 IP>  独自ドメインの代わりに mqtt.<IP>.sslip.io / map.<IP>.sslip.io を使う。
+#                sslip.io は名前に入れた IP をそのまま返す無料の DNS で、Let's Encrypt の証明書も取れる
 #   --yes        確認せずに進める
 # 管理者のパスワードは自動生成して最後に 1 回だけ表示する(環境変数 SETUP_ADMIN_PASS で指定も可)。
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-MQTT_DOMAIN='' APP_DOMAIN='' EMAIL='' ADMIN='' PREBUILT=0 LOCAL=0 YES=0
+MQTT_DOMAIN='' APP_DOMAIN='' EMAIL='' ADMIN='' PREBUILT=0 LOCAL=0 YES=0 SSLIP_IP=''
 while (($#)); do
   case $1 in
     --mqtt-domain) MQTT_DOMAIN=$2; shift 2 ;;
@@ -24,8 +27,9 @@ while (($#)); do
     --admin) ADMIN=$2; shift 2 ;;
     --prebuilt) PREBUILT=1; shift ;;
     --local) LOCAL=1; shift ;;
+    --sslip) SSLIP_IP=$2; shift 2 ;;
     --yes | -y) YES=1; shift ;;
-    -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
     *) die "知らないオプションです: $1" ;;
   esac
 done
@@ -49,6 +53,16 @@ if ((LOCAL)); then
   MQTT_DOMAIN=${MQTT_DOMAIN:-mqtt.localhost}
   APP_DOMAIN=${APP_DOMAIN:-map.localhost}
   EMAIL=${EMAIL:-local@example.net}
+fi
+if [[ -n $SSLIP_IP ]]; then
+  [[ $SSLIP_IP =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || die "--sslip には IPv4 アドレスを指定してください(例: 203.0.113.10)"
+  case $SSLIP_IP in
+    10.* | 192.168.* | 127.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*)
+      die "$SSLIP_IP はプライベート IP です。VM の「パブリック IP アドレス」を指定してください" ;;
+  esac
+  dashed=${SSLIP_IP//./-}
+  MQTT_DOMAIN=${MQTT_DOMAIN:-mqtt.$dashed.sslip.io}
+  APP_DOMAIN=${APP_DOMAIN:-map.$dashed.sslip.io}
 fi
 ask MQTT_DOMAIN "スマホが接続するドメイン(例: mqtt.example.com)"
 ask APP_DOMAIN "地図画面のドメイン(例: map.example.com)"
