@@ -106,6 +106,9 @@ ALERT_WEBHOOK_URL=
 ALERT_STALE_HOURS=0
 NOTIFY_DEVICE_TRANSITIONS=true
 BACKUP_KEEP=7
+# バックアップのファイルの持ち主(このユーザー)
+BACKUP_UID=$(id -u)
+BACKUP_GID=$(id -g)
 
 # 案A(Recorder)は使わない
 RECORDER_MQTT_USER=recorder
@@ -113,6 +116,8 @@ RECORDER_MQTT_PASS=
 EOF
 umask 022
 ok ".env を作成しました(パスワード類は自動生成)"
+mkdir -p backups
+chmod 700 backups
 
 bash scripts/init.sh >/dev/null
 ok "Mosquitto に API 用アカウントを登録しました"

@@ -114,14 +114,16 @@ case $cmd in
     ok "MQTT アカウント $name を登録しました"
 
     web_pass=''
+    admin_flag=()
+    ((admin)) && admin_flag=(--admin)
     if grep -q "^$name"$'\t' <<<"$(api_cli list-users)"; then
       # 既にいる利用者: Web のパスワードは変えない(--admin なら権限だけ付ける)
-      api_cli create-user "$name" --no-password $( ((admin)) && echo --admin) >/dev/null
+      api_cli create-user "$name" --no-password "${admin_flag[@]}" >/dev/null
       api_cli enable-user "$name" >/dev/null
       info "Web の利用者 $name は既にいます(パスワードはそのまま)"
     else
       web_pass=$(random_secret 16)
-      printf '%s\n' "$web_pass" | api_cli create-user "$name" --password-stdin $( ((admin)) && echo --admin) >/dev/null
+      printf '%s\n' "$web_pass" | api_cli create-user "$name" --password-stdin "${admin_flag[@]}" >/dev/null
       ok "Web の利用者 $name を作成しました"
     fi
 

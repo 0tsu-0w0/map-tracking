@@ -81,7 +81,7 @@ mosq_passwd_set() {
     while IFS= read -r user && IFS= read -r pass; do
       if [ -f "$f" ]; then mosquitto_passwd -b "$f" "$user" "$pass"; else mosquitto_passwd -c -b "$f" "$user" "$pass"; fi
     done
-    chown 1883:1883 "$f"
+    chown root:root "$f"
     chmod 0700 "$f"
   '
 }

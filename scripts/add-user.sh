@@ -28,7 +28,7 @@ else
 fi
 
 docker run --rm -v "$PWD/mosquitto/config:/mosquitto/config" "$MOSQ_IMAGE" sh -c \
-  "chown 1883:1883 /mosquitto/config/passwd && chmod 0700 /mosquitto/config/passwd"
+  "chown root:root /mosquitto/config/passwd && chmod 0700 /mosquitto/config/passwd"
 
 # 起動中なら設定を再読み込み(再起動不要)
 if docker compose ps --status running --services 2>/dev/null | grep -qx mosquitto; then
