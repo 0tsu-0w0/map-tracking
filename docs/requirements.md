@@ -138,11 +138,12 @@
 flowchart LR
     phone["スマートフォン<br/>OwnTracks アプリ"]
     browser["ブラウザ<br/>地図画面(MapLibre)"]
-    subgraph compose["Docker Compose(1 台の VPS)"]
+    subgraph compose["Docker Compose(1 台のサーバー)"]
         caddy["Caddy<br/>TLS 終端・443 のみ公開<br/>証明書自動更新"]
         mqtt["Mosquitto<br/>MQTT ブローカー・認証 / ACL"]
         api["API サーバー(自作)<br/>受信保存・REST・リアルタイム配信"]
         db[("PostgreSQL + PostGIS<br/>位置履歴・利用者・共有設定")]
+        backup["backup<br/>毎日ダンプ・7 世代"]
     end
     phone -- "MQTT over WSS :443" --> caddy
     browser <-- "HTTPS + WebSocket" --> caddy
@@ -150,11 +151,12 @@ flowchart LR
     caddy <--> api
     mqtt -- "購読" --> api
     api <-- "保存・検索" --> db
+    db -- "ダンプ" --> backup
 ```
 
 スマホは WSS で Caddy 経由で Mosquitto に送り、自作 API がそれを購読して DB に書き、ブラウザには WebSocket で新着を配る。参考構成と同様、OwnTracks は WebSocket のパスを指定できないため、MQTT はサブドメイン(例: `mqtt.example.com`)に分けてルートで受ける。
 
-実装では、図の 4 つに加えて、毎日 DB をダンプする backup コンテナが動く(計 5 つ)。地図画面はビルドして API のイメージに入れ、API が配信する。
+backup コンテナは毎日 DB をダンプし、サーバーの `backups/` に 7 世代残す(別の場所へのコピーは運用で行う)。地図画面はビルドして API のイメージに入れ、API が配信する。
 
 ### 5.3 動かす場所
 
