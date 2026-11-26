@@ -17,9 +17,43 @@ OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks 
 | 案A(このページ) | Mosquitto + OwnTracks Recorder + Caddy。設定ファイルだけで動く | 以下 |
 | 案B | Mosquitto + 自作 API(FastAPI)+ PostgreSQL/PostGIS + 自作の地図画面。共有設定・管理画面・書き出し・自動削除・バックアップ付き | 本番に載せる手順: [docs/deploy.md](docs/deploy.md)(サーバーが無ければ [Oracle Cloud の無料 VM](docs/oracle-cloud.md))、構成と機能: [docs/plan-b.md](docs/plan-b.md) |
 
-以下は案A の手順。
-
 ## 構成
+
+### 案B(主に使う構成)
+
+外部に開くのは 80/443 だけで、残りは Docker の内部ネットワークで完結する。backup が毎日 DB をダンプする。
+
+```mermaid
+flowchart LR
+    phone["スマホ<br/>OwnTracks"]
+    browser["ブラウザ<br/>地図画面"]
+    subgraph compose["compose.b.yaml(1 台のサーバー)"]
+        caddy["caddy<br/>TLS 終端・443"]
+        mqtt["mosquitto<br/>認証・ACL"]
+        api["api<br/>FastAPI + 地図画面"]
+        db[("db<br/>PostgreSQL 16 + PostGIS")]
+        backup["backup<br/>毎日ダンプ・7 世代"]
+    end
+    phone -- "MQTT over WSS :443" --> caddy
+    browser <-- "HTTPS + WebSocket" --> caddy
+    caddy --> mqtt
+    caddy <--> api
+    mqtt -- "購読" --> api
+    api <-- "保存・検索" --> db
+    db -- "ダンプ" --> backup
+```
+
+| サービス | イメージ | 役割 |
+| --- | --- | --- |
+| caddy | caddy:2.11.9 | TLS 終端、`MQTT_DOMAIN` → mosquitto、`APP_DOMAIN` → api |
+| mosquitto | eclipse-mosquitto:2.0.23 | MQTT ブローカー。認証 + ACL |
+| api | `api/Dockerfile`(または ghcr.io の公開イメージ) | 位置の受信・保存、REST・WebSocket、地図画面の配信 |
+| db | postgis/postgis:16-3.7 | 位置履歴・利用者・共有設定・場所 |
+| backup | postgis/postgis:16-3.7 | 毎日 DB をダンプし `backups/` に 7 世代残す |
+
+手順は [docs/deploy.md](docs/deploy.md) を参照。
+
+### 案A
 
 ```
 スマホ(OwnTracks) --WSS:443--> Caddy --> Mosquitto:9001
@@ -32,6 +66,8 @@ OwnTracks アプリの位置情報を MQTT over WSS で受け取り、OwnTracks 
 | caddy | caddy:2.11.9 | TLS 終端、`MQTT_DOMAIN` → Mosquitto、`APP_DOMAIN` → Recorder |
 | mosquitto | eclipse-mosquitto:2.0.23 | MQTT ブローカー。認証 + ACL |
 | recorder | owntracks/recorder:1.0.7 | 位置の保存と地図画面 |
+
+案A はバックアップのコンテナを持たない(Recorder の保存データのバックアップ方法は下の「運用」を参照)。以下は案A の手順。
 
 ## 準備
 
